@@ -2,26 +2,52 @@ from flask import Flask, render_template_string, jsonify, request
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-TZ = ZoneInfo("Europe/Prague")
+TIMEZONES = [
+    "Europe/Prague","Europe/Bratislava","Europe/Berlin","Europe/Vienna","Europe/Warsaw",
+    "Europe/Budapest","Europe/Paris","Europe/Rome","Europe/Madrid","Europe/London",
+    "Europe/Dublin","Europe/Lisbon","Europe/Amsterdam","Europe/Brussels","Europe/Zurich",
+    "Europe/Stockholm","Europe/Oslo","Europe/Copenhagen","Europe/Helsinki","Europe/Athens",
+    "Europe/Istanbul","Europe/Moscow","Europe/Kyiv",
+    "America/New_York","America/Chicago","America/Denver","America/Los_Angeles",
+    "America/Toronto","America/Vancouver","America/Mexico_City","America/Sao_Paulo",
+    "America/Buenos_Aires","America/Santiago","America/Lima","America/Bogota",
+    "Asia/Tokyo","Asia/Shanghai","Asia/Hong_Kong","Asia/Singapore","Asia/Seoul",
+    "Asia/Bangkok","Asia/Jakarta","Asia/Manila","Asia/Kolkata","Asia/Dubai",
+    "Asia/Tehran","Asia/Jerusalem","Asia/Riyadh",
+    "Africa/Cairo","Africa/Johannesburg","Africa/Lagos","Africa/Nairobi","Africa/Casablanca",
+    "Australia/Sydney","Australia/Melbourne","Australia/Perth","Australia/Brisbane",
+    "Pacific/Auckland","Pacific/Fiji","Pacific/Honolulu","UTC",
+]
+
+def get_tz(name):
+    if name in TIMEZONES:
+        try:
+            return ZoneInfo(name)
+        except Exception:
+            pass
+    return ZoneInfo("Europe/Prague")
+
+STYLES = ['orloj','modern','cuckoo','digital','neon']
+
+def make_nav(active, tz):
+    links = []
+    for s in STYLES:
+        cls = 'active' if s == active else ''
+        labels = {'orloj':'Orloj','modern':'Moderni','cuckoo':'Kukacky','digital':'Digitalni','neon':'Neon'}
+        links.append(f'<a href="/?style={s}&tz={tz}" class="{cls}">{labels[s]}</a>')
+    opts = ''.join(f'<option value="{z}" {"selected" if z==tz else ""}>{z}</option>' for z in TIMEZONES)
+    return (
+        '<nav class="nav">' + ''.join(links) + '</nav>'
+        '<form class="tzform" method="get">'
+        f'<input type="hidden" name="style" value="{active}">'
+        f'<select name="tz" onchange="this.form.submit()">{opts}</select>'
+        '</form>'
+    )
 
 app = Flask(__name__)
 
-NAV = """
-<nav class="nav">
-  <a href="/?style=orloj" class="{orloj}">Orloj</a>
-  <a href="/?style=modern" class="{modern}">Moderni</a>
-  <a href="/?style=cuckoo" class="{cuckoo}">Kukacky</a>
-  <a href="/?style=digital" class="{digital}">Digitalni</a>
-  <a href="/?style=neon" class="{neon}">Neon</a>
-</nav>
-"""
-
-def nav_classes(active):
-    styles = ['orloj','modern','cuckoo','digital','neon']
-    return {s: ('active' if s==active else '') for s in styles}
-
 # ---------------- ORLOJ ----------------
-TPL_ORLOJ = """
+TPL_ORLOJ = r'''
 <!doctype html>
 <html lang="cs">
 <head>
@@ -36,9 +62,11 @@ body{font-family:'Inter',sans-serif;color:var(--text);background:radial-gradient
 @keyframes twinkle{0%,100%{opacity:.3}50%{opacity:1}}
 .container{position:relative;z-index:1;text-align:center;padding:1rem;}
 h1{font-family:'Cinzel',serif;font-weight:700;letter-spacing:6px;font-size:1.4rem;color:var(--gold);margin:0 0 1rem;text-shadow:0 0 12px rgba(212,175,55,.5);}
-.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:1.2rem;}
+.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:.8rem;}
 .nav a{font-family:'Cinzel',serif;font-size:.8rem;letter-spacing:2px;color:var(--muted);text-decoration:none;padding:.4rem .8rem;border:1px solid rgba(212,175,55,.3);border-radius:20px;transition:.2s;}
 .nav a:hover,.nav a.active{color:var(--gold);border-color:var(--gold);background:rgba(212,175,55,.1);}
+.tzform{margin-bottom:1.2rem;}
+.tzform select{font-family:'Cinzel',serif;font-size:.85rem;color:var(--gold);background:rgba(0,0,0,.4);border:1px solid rgba(212,175,55,.4);border-radius:8px;padding:.4rem .8rem;cursor:pointer;}
 .orloj{position:relative;width:340px;height:340px;margin:0 auto;}
 .orloj-glow{position:absolute;inset:-30px;border-radius:50%;background:radial-gradient(circle,rgba(212,175,55,.25),transparent 70%);filter:blur(20px);}
 .face{position:relative;width:100%;height:100%;border-radius:50%;background:radial-gradient(circle at 50% 40%,#1c2340 0%,#0b0f1f 70%,#05070f 100%);border:6px solid var(--gold);box-shadow:0 0 0 3px var(--bronze),0 0 0 6px #2a2010,0 20px 60px rgba(0,0,0,.8),inset 0 0 40px rgba(0,0,0,.6);}
@@ -92,28 +120,30 @@ h1{font-family:'Cinzel',serif;font-weight:700;letter-spacing:6px;font-size:1.4re
     <div class="pendulum-rod"><div class="pendulum-bob"></div></div>
   </div>
   <div class="digital" id="digital">{{ server_time }}</div>
-  <div class="sub">cas serveru - Praha</div>
+  <div class="sub">{{ tz }}</div>
 </div>
 <script>
+const TZ = {{ tz|tojson }};
 const starsEl=document.getElementById('stars');
 for(let i=0;i<80;i++){const s=document.createElement('div');s.className='star';s.style.left=Math.random()*100+'%';s.style.top=Math.random()*100+'%';s.style.animationDelay=(Math.random()*3)+'s';starsEl.appendChild(s);}
 let serverNow=new Date("{{ server_time_iso }}");
-async function sync(){try{const r=await fetch('/api/time');const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
-function render(t){const h=t.getHours()%12;const m=t.getMinutes();const s=t.getSeconds()+t.getMilliseconds()/1000;
-document.getElementById('hour').style.transform='rotate('+(h*30+m*0.5)+'deg)';
+async function sync(){try{const r=await fetch('/api/time?tz='+encodeURIComponent(TZ));const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
+function hms(t){const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'numeric',minute:'numeric',second:'numeric',hour12:false});const parts=fmt.formatToParts(t);let h=0,m=0,s=0;for(const p of parts){if(p.type==='hour')h=+p.value;if(p.type==='minute')m=+p.value;if(p.type==='second')s=+p.value;}return {h,m,s};}
+function render(t){const {h,m,s}=hms(t);
+document.getElementById('hour').style.transform='rotate('+(h%12*30+m*0.5)+'deg)';
 document.getElementById('minute').style.transform='rotate('+(m*6+s*0.1)+'deg)';
 document.getElementById('second').style.transform='rotate('+(s*6)+'deg)';
-document.getElementById('sun').style.transform='rotate('+(h*30+m*0.5+180)+'deg)';
-document.getElementById('digital').textContent=t.toLocaleString('cs-CZ');}
+document.getElementById('sun').style.transform='rotate('+(h%12*30+m*0.5+180)+'deg)';
+document.getElementById('digital').textContent=t.toLocaleString('cs-CZ',{timeZone:TZ});}
 setInterval(sync,1000);
 setInterval(()=>{serverNow=new Date(serverNow.getTime()+1000);render(serverNow);},1000);
 sync().then(()=>render(serverNow));
 </script>
 </body></html>
-"""
+'''
 
 # ---------------- MODERN ----------------
-TPL_MODERN = """
+TPL_MODERN = r'''
 <!doctype html>
 <html lang="cs">
 <head>
@@ -128,9 +158,11 @@ body{font-family:'Inter',sans-serif;color:var(--text);background:radial-gradient
 @keyframes float{0%,100%{transform:translate(0,0)}50%{transform:translate(40px,-30px)}}
 .container{position:relative;z-index:1;text-align:center;padding:2rem;}
 h1{font-weight:300;letter-spacing:4px;text-transform:uppercase;font-size:1.1rem;color:var(--muted);margin:0 0 1.5rem;}
-.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:1.5rem;}
+.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:.8rem;}
 .nav a{font-size:.8rem;letter-spacing:2px;color:var(--muted);text-decoration:none;padding:.4rem .8rem;border:1px solid rgba(56,189,248,.3);border-radius:20px;transition:.2s;}
 .nav a:hover,.nav a.active{color:var(--accent);border-color:var(--accent);background:rgba(56,189,248,.1);}
+.tzform{margin-bottom:1.5rem;}
+.tzform select{font-size:.85rem;color:var(--accent);background:rgba(0,0,0,.4);border:1px solid rgba(56,189,248,.4);border-radius:8px;padding:.4rem .8rem;cursor:pointer;}
 .clock-wrap{position:relative;width:320px;height:320px;margin:0 auto;}
 .glow{position:absolute;inset:-20px;border-radius:50%;background:conic-gradient(from 0deg,var(--accent),var(--accent2),var(--accent));filter:blur(30px);opacity:.45;animation:spin 8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
@@ -164,25 +196,27 @@ h1{font-weight:300;letter-spacing:4px;text-transform:uppercase;font-size:1.1rem;
     </div>
   </div>
   <div class="digital" id="digital">{{ server_time }}</div>
-  <div class="sub">synchronizovano se serverem</div>
+  <div class="sub">{{ tz }}</div>
 </div>
 <script>
+const TZ = {{ tz|tojson }};
 let serverNow=new Date("{{ server_time_iso }}");
-async function sync(){try{const r=await fetch('/api/time');const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
-function render(t){const h=t.getHours()%12;const m=t.getMinutes();const s=t.getSeconds()+t.getMilliseconds()/1000;
-document.getElementById('hour').style.transform='rotate('+(h*30+m*0.5)+'deg)';
+async function sync(){try{const r=await fetch('/api/time?tz='+encodeURIComponent(TZ));const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
+function hms(t){const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'numeric',minute:'numeric',second:'numeric',hour12:false});const parts=fmt.formatToParts(t);let h=0,m=0,s=0;for(const p of parts){if(p.type==='hour')h=+p.value;if(p.type==='minute')m=+p.value;if(p.type==='second')s=+p.value;}return {h,m,s};}
+function render(t){const {h,m,s}=hms(t);
+document.getElementById('hour').style.transform='rotate('+(h%12*30+m*0.5)+'deg)';
 document.getElementById('minute').style.transform='rotate('+(m*6+s*0.1)+'deg)';
 document.getElementById('second').style.transform='rotate('+(s*6)+'deg)';
-document.getElementById('digital').textContent=t.toLocaleString('cs-CZ');}
+document.getElementById('digital').textContent=t.toLocaleString('cs-CZ',{timeZone:TZ});}
 setInterval(sync,1000);
 setInterval(()=>{serverNow=new Date(serverNow.getTime()+1000);render(serverNow);},1000);
 sync().then(()=>render(serverNow));
 </script>
 </body></html>
-"""
+'''
 
 # ---------------- CUCKOO ----------------
-TPL_CUCKOO = """
+TPL_CUCKOO = r'''
 <!doctype html>
 <html lang="cs">
 <head>
@@ -194,9 +228,11 @@ TPL_CUCKOO = """
 body{font-family:'Inter',sans-serif;color:var(--text);background:linear-gradient(180deg,#2a3a2a 0%,#1a2a1a 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;overflow:hidden;}
 .container{position:relative;z-index:1;text-align:center;padding:1rem;}
 h1{font-family:'Cinzel',serif;font-weight:700;letter-spacing:6px;font-size:1.4rem;color:var(--gold);margin:0 0 1rem;text-shadow:0 0 12px rgba(212,175,55,.5);}
-.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:1.2rem;}
+.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:.8rem;}
 .nav a{font-family:'Cinzel',serif;font-size:.8rem;letter-spacing:2px;color:var(--muted);text-decoration:none;padding:.4rem .8rem;border:1px solid rgba(212,175,55,.3);border-radius:20px;transition:.2s;}
 .nav a:hover,.nav a.active{color:var(--gold);border-color:var(--gold);background:rgba(212,175,55,.1);}
+.tzform{margin-bottom:1.2rem;}
+.tzform select{font-family:'Cinzel',serif;font-size:.85rem;color:var(--gold);background:rgba(0,0,0,.4);border:1px solid rgba(212,175,55,.4);border-radius:8px;padding:.4rem .8rem;cursor:pointer;}
 .house{position:relative;width:260px;height:300px;margin:0 auto;background:var(--wood);border:4px solid var(--roof);border-radius:8px;box-shadow:0 20px 40px rgba(0,0,0,.6);}
 .roof{position:absolute;top:-60px;left:-20px;width:300px;height:80px;background:var(--roof);clip-path:polygon(50% 0%,0% 100%,100% 100%);border:3px solid #2a1508;}
 .door{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);width:60px;height:80px;background:#2a1508;border:3px solid var(--roof);border-radius:6px 6px 0 0;overflow:hidden;}
@@ -239,17 +275,18 @@ h1{font-family:'Cinzel',serif;font-weight:700;letter-spacing:6px;font-size:1.4re
     <div class="weights"><div class="weight"></div><div class="weight"></div></div>
   </div>
   <div class="digital" id="digital">{{ server_time }}</div>
-  <div class="sub">cas serveru - Praha</div>
+  <div class="sub">{{ tz }}</div>
 </div>
 <script>
+const TZ = {{ tz|tojson }};
 let serverNow=new Date("{{ server_time_iso }}");
-async function sync(){try{const r=await fetch('/api/time');const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
-function render(t){const h=t.getHours()%12;const m=t.getMinutes();const s=t.getSeconds()+t.getMilliseconds()/1000;
-document.getElementById('hour').style.transform='rotate('+(h*30+m*0.5)+'deg)';
+async function sync(){try{const r=await fetch('/api/time?tz='+encodeURIComponent(TZ));const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
+function hms(t){const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'numeric',minute:'numeric',second:'numeric',hour12:false});const parts=fmt.formatToParts(t);let h=0,m=0,s=0;for(const p of parts){if(p.type==='hour')h=+p.value;if(p.type==='minute')m=+p.value;if(p.type==='second')s=+p.value;}return {h,m,s};}
+function render(t){const {h,m,s}=hms(t);
+document.getElementById('hour').style.transform='rotate('+(h%12*30+m*0.5)+'deg)';
 document.getElementById('minute').style.transform='rotate('+(m*6+s*0.1)+'deg)';
 document.getElementById('second').style.transform='rotate('+(s*6)+'deg)';
-document.getElementById('digital').textContent=t.toLocaleString('cs-CZ');
-// cuckoo pops out when minute==0 and second<4
+document.getElementById('digital').textContent=t.toLocaleString('cs-CZ',{timeZone:TZ});
 const c=document.getElementById('cuckoo');
 if(m===0 && t.getSeconds()<4){c.classList.add('show');}else{c.classList.remove('show');}}
 setInterval(sync,1000);
@@ -257,10 +294,10 @@ setInterval(()=>{serverNow=new Date(serverNow.getTime()+1000);render(serverNow);
 sync().then(()=>render(serverNow));
 </script>
 </body></html>
-"""
+'''
 
 # ---------------- DIGITAL ----------------
-TPL_DIGITAL = """
+TPL_DIGITAL = r'''
 <!doctype html>
 <html lang="cs">
 <head>
@@ -272,9 +309,11 @@ TPL_DIGITAL = """
 body{font-family:'Inter',sans-serif;color:var(--accent);background:radial-gradient(circle at 50% 50%,#0a1a2a 0%,#05070f 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;overflow:hidden;}
 .container{position:relative;z-index:1;text-align:center;padding:2rem;}
 h1{font-family:'Orbitron',sans-serif;letter-spacing:6px;font-size:1.2rem;color:var(--accent2);margin:0 0 1.5rem;text-shadow:0 0 12px rgba(0,184,255,.5);}
-.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:2rem;}
+.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:.8rem;}
 .nav a{font-family:'Orbitron',sans-serif;font-size:.75rem;letter-spacing:2px;color:var(--muted);text-decoration:none;padding:.4rem .8rem;border:1px solid rgba(0,255,157,.3);border-radius:8px;transition:.2s;}
 .nav a:hover,.nav a.active{color:var(--accent);border-color:var(--accent);background:rgba(0,255,157,.1);}
+.tzform{margin-bottom:2rem;}
+.tzform select{font-family:'Orbitron',sans-serif;font-size:.8rem;color:var(--accent);background:rgba(0,0,0,.4);border:1px solid rgba(0,255,157,.4);border-radius:8px;padding:.4rem .8rem;cursor:pointer;}
 .display{font-family:'Orbitron',sans-serif;font-size:4rem;font-weight:700;letter-spacing:6px;color:var(--accent);text-shadow:0 0 20px rgba(0,255,157,.6),0 0 40px rgba(0,255,157,.3);padding:2rem 3rem;border:2px solid rgba(0,255,157,.4);border-radius:16px;background:rgba(0,255,157,.05);box-shadow:inset 0 0 30px rgba(0,255,157,.1);}
 .date{margin-top:1.5rem;font-family:'Orbitron',sans-serif;font-size:1.2rem;color:var(--accent2);letter-spacing:4px;}
 .sub{margin-top:.5rem;color:var(--muted);font-size:.85rem;letter-spacing:2px;}
@@ -288,25 +327,26 @@ h1{font-family:'Orbitron',sans-serif;letter-spacing:6px;font-size:1.2rem;color:v
   NAV_PLACEHOLDER
   <div class="display" id="digital">{{ server_time }}</div>
   <div class="date" id="date"></div>
-  <div class="sub">cas serveru - Praha</div>
+  <div class="sub">{{ tz }}</div>
 </div>
 <script>
+const TZ = {{ tz|tojson }};
 let serverNow=new Date("{{ server_time_iso }}");
-async function sync(){try{const r=await fetch('/api/time');const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
+async function sync(){try{const r=await fetch('/api/time?tz='+encodeURIComponent(TZ));const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
 function pad(n){return String(n).padStart(2,'0');}
-function render(t){
-  document.getElementById('digital').textContent=pad(t.getHours())+':'+pad(t.getMinutes())+':'+pad(t.getSeconds());
-  document.getElementById('date').textContent=t.toLocaleDateString('cs-CZ',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-}
+function hms(t){const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'numeric',minute:'numeric',second:'numeric',hour12:false});const parts=fmt.formatToParts(t);let h=0,m=0,s=0;for(const p of parts){if(p.type==='hour')h=+p.value;if(p.type==='minute')m=+p.value;if(p.type==='second')s=+p.value;}return {h,m,s};}
+function render(t){const {h,m,s}=hms(t);
+document.getElementById('digital').textContent=pad(h)+':'+pad(m)+':'+pad(s);
+document.getElementById('date').textContent=t.toLocaleDateString('cs-CZ',{timeZone:TZ,weekday:'long',day:'numeric',month:'long',year:'numeric'});}
 setInterval(sync,1000);
 setInterval(()=>{serverNow=new Date(serverNow.getTime()+1000);render(serverNow);},1000);
 sync().then(()=>render(serverNow));
 </script>
 </body></html>
-"""
+'''
 
 # ---------------- NEON ----------------
-TPL_NEON = """
+TPL_NEON = r'''
 <!doctype html>
 <html lang="cs">
 <head>
@@ -318,9 +358,11 @@ TPL_NEON = """
 body{font-family:'Inter',sans-serif;color:#fff;background:radial-gradient(circle at 50% 50%,#1a0033 0%,#0a0014 100%);display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;overflow:hidden;}
 .container{position:relative;z-index:1;text-align:center;padding:2rem;}
 h1{font-family:'Orbitron',sans-serif;letter-spacing:6px;font-size:1.2rem;color:var(--cyan);margin:0 0 1.5rem;text-shadow:0 0 12px var(--cyan);}
-.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:2rem;}
+.nav{display:flex;gap:.5rem;justify-content:center;flex-wrap:wrap;margin-bottom:.8rem;}
 .nav a{font-family:'Orbitron',sans-serif;font-size:.75rem;letter-spacing:2px;color:var(--muted);text-decoration:none;padding:.4rem .8rem;border:1px solid rgba(255,45,149,.4);border-radius:20px;transition:.2s;}
 .nav a:hover,.nav a.active{color:var(--pink);border-color:var(--pink);background:rgba(255,45,149,.1);text-shadow:0 0 8px var(--pink);}
+.tzform{margin-bottom:2rem;}
+.tzform select{font-family:'Orbitron',sans-serif;font-size:.8rem;color:var(--pink);background:rgba(0,0,0,.4);border:1px solid rgba(255,45,149,.4);border-radius:20px;padding:.4rem .8rem;cursor:pointer;}
 .clock-wrap{position:relative;width:320px;height:320px;margin:0 auto;}
 .ring{position:absolute;inset:0;border-radius:50%;border:3px solid var(--pink);box-shadow:0 0 20px var(--pink),inset 0 0 20px rgba(255,45,149,.3);}
 .ring2{position:absolute;inset:20px;border-radius:50%;border:2px solid var(--cyan);box-shadow:0 0 15px var(--cyan);}
@@ -348,22 +390,24 @@ h1{font-family:'Orbitron',sans-serif;letter-spacing:6px;font-size:1.2rem;color:v
     <div class="center"></div>
   </div>
   <div class="digital" id="digital">{{ server_time }}</div>
-  <div class="sub">cas serveru - Praha</div>
+  <div class="sub">{{ tz }}</div>
 </div>
 <script>
+const TZ = {{ tz|tojson }};
 let serverNow=new Date("{{ server_time_iso }}");
-async function sync(){try{const r=await fetch('/api/time');const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
-function render(t){const h=t.getHours()%12;const m=t.getMinutes();const s=t.getSeconds()+t.getMilliseconds()/1000;
-document.getElementById('hour').style.transform='rotate('+(h*30+m*0.5)+'deg)';
+async function sync(){try{const r=await fetch('/api/time?tz='+encodeURIComponent(TZ));const d=await r.json();serverNow=new Date(d.iso);}catch(e){}}
+function hms(t){const fmt=new Intl.DateTimeFormat('en-GB',{timeZone:TZ,hour:'numeric',minute:'numeric',second:'numeric',hour12:false});const parts=fmt.formatToParts(t);let h=0,m=0,s=0;for(const p of parts){if(p.type==='hour')h=+p.value;if(p.type==='minute')m=+p.value;if(p.type==='second')s=+p.value;}return {h,m,s};}
+function render(t){const {h,m,s}=hms(t);
+document.getElementById('hour').style.transform='rotate('+(h%12*30+m*0.5)+'deg)';
 document.getElementById('minute').style.transform='rotate('+(m*6+s*0.1)+'deg)';
 document.getElementById('second').style.transform='rotate('+(s*6)+'deg)';
-document.getElementById('digital').textContent=t.toLocaleString('cs-CZ');}
+document.getElementById('digital').textContent=t.toLocaleString('cs-CZ',{timeZone:TZ});}
 setInterval(sync,1000);
 setInterval(()=>{serverNow=new Date(serverNow.getTime()+1000);render(serverNow);},1000);
 sync().then(()=>render(serverNow));
 </script>
 </body></html>
-"""
+'''
 
 TEMPLATES = {
     'orloj': TPL_ORLOJ,
@@ -378,18 +422,28 @@ def index():
     style = request.args.get('style', 'orloj')
     if style not in TEMPLATES:
         style = 'orloj'
-    now = datetime.now(TZ)
-    tpl = TEMPLATES[style].replace('NAV_PLACEHOLDER', NAV.format(**nav_classes(style)))
+    tz_name = request.args.get('tz', 'Europe/Prague')
+    if tz_name not in TIMEZONES:
+        tz_name = 'Europe/Prague'
+    tz = get_tz(tz_name)
+    now = datetime.now(tz)
+    tpl = TEMPLATES[style].replace('NAV_PLACEHOLDER', make_nav(style, tz_name))
     return render_template_string(
         tpl,
         server_time=now.strftime('%Y-%m-%d %H:%M:%S'),
         server_time_iso=now.isoformat(),
+        tz=tz_name,
+        style=style,
     )
 
 @app.route('/api/time')
 def api_time():
-    now = datetime.now(TZ)
-    return jsonify({'iso': now.isoformat(), 'timestamp': now.timestamp()})
+    tz_name = request.args.get('tz', 'Europe/Prague')
+    if tz_name not in TIMEZONES:
+        tz_name = 'Europe/Prague'
+    tz = get_tz(tz_name)
+    now = datetime.now(tz)
+    return jsonify({'iso': now.isoformat(), 'timestamp': now.timestamp(), 'tz': tz_name})
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
