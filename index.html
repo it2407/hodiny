@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hodiny</title>
+  <style>
+    :root { --accent:#38bdf8; --accent2:#a78bfa; --ink:#e8edf7; --muted:#9ba7ba; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; font-family:Inter,system-ui,sans-serif; color:var(--ink); background:radial-gradient(circle at 20% 10%,#17315c,transparent 38%),radial-gradient(circle at 90% 90%,#48228a,transparent 35%),#090e1a; display:grid; place-items:center; }
+    .shell { width:min(92vw,700px); text-align:center; padding:32px 18px; }
+    h1 { margin:0 0 14px; letter-spacing:.28em; font-size:clamp(1rem,4vw,1.35rem); text-transform:uppercase; }
+    .toolbar { display:flex; justify-content:center; gap:8px; flex-wrap:wrap; margin-bottom:28px; }
+    button, select { color:var(--ink); background:rgba(10,18,33,.78); border:1px solid rgba(56,189,248,.38); border-radius:999px; padding:.65rem .85rem; font:inherit; cursor:pointer; }
+    button.active, button:hover { border-color:var(--accent); color:var(--accent); box-shadow:0 0 18px rgba(56,189,248,.18); }
+    select { max-width:min(260px,70vw); }
+    .clock { position:relative; width:min(78vw,360px); aspect-ratio:1; margin:auto; border-radius:50%; border:3px solid var(--accent); box-shadow:0 0 35px rgba(56,189,248,.22), inset 0 0 35px rgba(167,139,250,.12); background:rgba(255,255,255,.025); }
+    .tick { position:absolute; width:2px; height:10px; left:50%; top:7px; background:rgba(232,237,247,.28); transform-origin:1px calc(min(78vw,360px)/2 - 7px); }
+    .tick.major { height:16px; width:3px; background:var(--accent); box-shadow:0 0 8px var(--accent); }
+    .num { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) rotate(var(--a)) translateY(-145px) rotate(calc(-1 * var(--a))); font-size:.85rem; color:var(--muted); }
+    .hand { position:absolute; bottom:50%; left:50%; transform-origin:50% 100%; border-radius:8px; }
+    .hour { width:9px; height:25%; margin-left:-4.5px; background:linear-gradient(#fff,var(--accent)); box-shadow:0 0 12px var(--accent); }
+    .minute { width:6px; height:34%; margin-left:-3px; background:linear-gradient(#fff,var(--accent2)); box-shadow:0 0 12px var(--accent2); }
+    .second { width:2px; height:40%; margin-left:-1px; background:#fb7185; box-shadow:0 0 8px #fb7185; }
+    .center { position:absolute; left:50%; top:50%; width:16px; height:16px; transform:translate(-50%,-50%); border-radius:50%; background:#fff; box-shadow:0 0 16px #fff; }
+    .digital { margin-top:24px; font-size:clamp(1.6rem,8vw,3.2rem); font-weight:700; letter-spacing:.12em; text-shadow:0 0 20px rgba(56,189,248,.55); }
+    .date, .zone { margin-top:8px; color:var(--muted); }
+    body.digital-mode { --accent:#00ff9d; --accent2:#00b8ff; background:#02070d; }
+    body.digital-mode .clock { border-radius:18px; border-width:1px; aspect-ratio:auto; min-height:180px; background:rgba(0,255,157,.04); box-shadow:0 0 30px rgba(0,255,157,.18), inset 0 0 30px rgba(0,184,255,.08); }
+    body.digital-mode .tick, body.digital-mode .num, body.digital-mode .hand, body.digital-mode .center { display:none; }
+    body.digital-mode .digital { margin:55px 10px; font-family:'Courier New',monospace; }
+    body.neon-mode { --accent:#ff2d95; --accent2:#00f0ff; background:radial-gradient(circle,#23003d,#080010 70%); }
+    body.neon-mode .clock { box-shadow:0 0 24px var(--accent), inset 0 0 28px rgba(255,45,149,.2); }
+    body.orloj-mode { --accent:#d4af37; --accent2:#f5e6a3; background:radial-gradient(circle,#26365a,#080c19 70%); }
+    body.orloj-mode .clock { border:6px double var(--accent); box-shadow:0 0 30px rgba(212,175,55,.3); }
+    body.cuckoo-mode { --accent:#d4af37; --accent2:#7b4a20; background:linear-gradient(#33452f,#171f18); }
+    body.cuckoo-mode .clock { border:10px solid #6b3f1d; box-shadow:0 12px 30px rgba(0,0,0,.55), inset 0 0 20px #3a1f0e; }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <h1>Hodiny</h1>
+    <div class="toolbar" aria-label="Clock controls">
+      <button class="style active" data-style="modern">Modern</button>
+      <button class="style" data-style="orloj">Orloj</button>
+      <button class="style" data-style="cuckoo">Cuckoo</button>
+      <button class="style" data-style="digital">Digital</button>
+      <button class="style" data-style="neon">Neon</button>
+      <select id="timezone" aria-label="Time zone"></select>
+    </div>
+    <section class="clock" aria-label="Analog clock">
+      <div id="ticks"></div>
+      <div id="numbers"></div>
+      <div class="hand hour" id="hour"></div>
+      <div class="hand minute" id="minute"></div>
+      <div class="hand second" id="second"></div>
+      <div class="center"></div>
+    </section>
+    <div class="digital" id="digital">--:--:--</div>
+    <div class="date" id="date"></div>
+    <div class="zone" id="zone"></div>
+  </main>
+  <script>
+    const zones=['Europe/Prague','Europe/Bratislava','Europe/Berlin','Europe/Vienna','Europe/Warsaw','Europe/Budapest','Europe/Paris','Europe/London','America/New_York','America/Chicago','America/Los_Angeles','America/Toronto','America/Sao_Paulo','Asia/Tokyo','Asia/Shanghai','Asia/Singapore','Asia/Dubai','Asia/Kolkata','Australia/Sydney','Pacific/Auckland','UTC'];
+    const select=document.getElementById('timezone');
+    zones.forEach(zone=>{const o=document.createElement('option');o.value=zone;o.textContent=zone;select.appendChild(o)});
+    const savedZone=localStorage.getItem('hodiny-zone');
+    if(zones.includes(savedZone)) select.value=savedZone;
+
+    const ticks=document.getElementById('ticks');
+    for(let i=0;i<60;i++){const tick=document.createElement('div');tick.className='tick'+(i%5===0?' major':'');tick.style.transform=`translateX(-50%) rotate(${i*6}deg)`;ticks.appendChild(tick)}
+    const numbers=document.getElementById('numbers');
+    for(let n=1;n<=12;n++){const num=document.createElement('div');num.className='num';num.style.setProperty('--a',`${n*30}deg`);num.textContent=n;numbers.appendChild(num)}
+
+    function parts(date){const zone=select.value;const f=new Intl.DateTimeFormat('en-GB',{timeZone:zone,hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'});const p=Object.fromEntries(f.formatToParts(date).filter(x=>x.type!=='literal').map(x=>[x.type,x.value]));return {h:+p.hour,m:+p.minute,s:+p.second}}
+    function render(){const now=new Date();const {h,m,s}=parts(now);document.getElementById('hour').style.transform=`rotate(${h%12*30+m*.5}deg)`;document.getElementById('minute').style.transform=`rotate(${m*6+s*.1}deg)`;document.getElementById('second').style.transform=`rotate(${s*6}deg)`;const pad=n=>String(n).padStart(2,'0');document.getElementById('digital').textContent=`${pad(h)}:${pad(m)}:${pad(s)}`;document.getElementById('date').textContent=now.toLocaleDateString('cs-CZ',{timeZone:select.value,weekday:'long',day:'numeric',month:'long',year:'numeric'});document.getElementById('zone').textContent=select.value}
+
+    select.addEventListener('change',()=>{localStorage.setItem('hodiny-zone',select.value);render()});
+    document.querySelectorAll('.style').forEach(button=>button.addEventListener('click',()=>{document.querySelectorAll('.style').forEach(b=>b.classList.remove('active'));button.classList.add('active');document.body.className=`${button.dataset.style}-mode`;localStorage.setItem('hodiny-style',button.dataset.style)}));
+    const savedStyle=localStorage.getItem('hodiny-style');
+    if(savedStyle){const b=document.querySelector(`.style[data-style="${savedStyle}"]`);if(b)b.click()}
+    render();setInterval(render,1000);
+  </script>
+</body>
+</html>
